@@ -48,8 +48,9 @@ def precompute_freqs_cis(dim: int, end: int, theta: float = 10000.0):
 
 def reshape_for_broadcast(freqs_cis: torch.Tensor, x: torch.Tensor):
     ndim = x.ndim
-    assert 0 <= 1 < ndim
+    assert 0 <= 1 < ndim # if ndim is less than or equal to 1, raise Error.
     assert freqs_cis.shape == (x.shape[1], x.shape[-1])
+    # new shape from x by setting all dimensions to 1, except for the 1th and last dimensions. 
     shape = [d if i == 1 or i == ndim - 1 else 1 for i, d in enumerate(x.shape)]
     return freqs_cis.view(shape)
 
@@ -61,6 +62,17 @@ def apply_rotary_emb(
 ) -> Tuple[torch.Tensor, torch.Tensor]:
 
     # reshape xq and xk to match the complex representation
+    # xq.shape[:-1] returns all dimensions of xq except the last one, (-1, 2) creates a tuple of two dimensions 
+    # where the first dimension is inferred from the remaining dimensions of xq and the second dimension has a size of 2.
+    # xq.float().reshape(xq.shape[:-1] + (-1, 2)) reshapes the tensor xq to have a new shape 
+    # where the last dimension is split into two dimensions of size 2.
+    # unbind(-1) unbinds the tensor xq along the last dimension, which returns a tuple of two tensors xq_r and xq_i.
+    '''example
+        xq = torch.tensor([[1, 2, 3, 4], [5, 6, 7, 8]]) # create a tensor with shape (2, 4)
+        xq_r, xq_i = xq.float().reshape(xq.shape[:-1] + (-1, 2)).unbind(-1) # reshape the tensor to have shape (2, 2, 2)
+        print(xq_r) # output: tensor([[1., 2.], [5., 6.]])
+        print(xq_i) # output: tensor([[3., 4.], [7., 8.]])
+    '''
     xq_r, xq_i = xq.float().reshape(xq.shape[:-1] + (-1, 2)).unbind(-1)
     xk_r, xk_i = xk.float().reshape(xk.shape[:-1] + (-1, 2)).unbind(-1)
 
@@ -75,6 +87,7 @@ def apply_rotary_emb(
     xk_out_i = xk_r * freqs_sin + xk_i * freqs_cos
 
     # flatten last two dimensions
+    # Concatenates tensors along the newly inserted last dimension, then flatten along dimension 3.
     xq_out = torch.stack([xq_out_r, xq_out_i], dim=-1).flatten(3)
     xk_out = torch.stack([xk_out_r, xk_out_i], dim=-1).flatten(3)
 
@@ -85,11 +98,11 @@ def repeat_kv(x: torch.Tensor, n_rep: int) -> torch.Tensor:
     bs, slen, n_kv_heads, head_dim = x.shape
     if n_rep == 1:
         return x
-    return (
-        x[:, :, :, None, :]
+    return ( 
+        x[:, :, :, None, :] 
         .expand(bs, slen, n_kv_heads, n_rep, head_dim)
         .reshape(bs, slen, n_kv_heads * n_rep, head_dim)
-    )
+    ) # when n_rep>1, insert a new 4th dim, use expand to repeat n_rep times in this dim, then reshape.
 
 class Attention(nn.Module):
     def __init__(self, args: ModelArgs):
